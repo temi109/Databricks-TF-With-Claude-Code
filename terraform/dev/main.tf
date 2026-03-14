@@ -42,7 +42,7 @@ module "databricks" {
     }
   }
 
-  schemas = ["bronze", "silver", "gold"]
+  schemas = ["raw", "bronze", "silver", "gold"]
   admins  = ["temidayo.ibraheem@gmail.com"]
 
   depends_on = [module.workspace]

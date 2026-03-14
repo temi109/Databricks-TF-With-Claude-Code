@@ -1,4 +1,4 @@
-name: Terraform S3 Module CI
+name: Terraform CI
 
 on:
   push:
@@ -13,20 +13,20 @@ permissions:
 env:
   TF_VERSION: "1.9.0"
   TFLINT_VERSION: "v0.50.3"
-  WORKING_DIR: modules/s3
+  S3_MODULE: terraform/modules/s3
 
 jobs:
   # ──────────────────────────────────────────────────────────────
   # Stage 1: Static Analysis
   # Runs on every push. Fast, free, no AWS credentials needed.
+  # fmt covers all of terraform/; validate runs per-module.
   # ──────────────────────────────────────────────────────────────
   static-analysis:
     name: Static Analysis
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -35,28 +35,40 @@ jobs:
 
       - name: Terraform Format Check
         run: terraform fmt -check -recursive
-        working-directory: ${{ env.WORKING_DIR }}
+        working-directory: terraform
 
-      - name: Terraform Init
-        run: terraform init -backend=false
-        working-directory: ${{ env.WORKING_DIR }}
+      - name: Validate — s3
+        run: terraform init -backend=false && terraform validate
+        working-directory: terraform/modules/s3
 
-      - name: Terraform Validate
-        run: terraform validate
-        working-directory: ${{ env.WORKING_DIR }}
+      - name: Validate — iam-unity-catalog
+        run: terraform init -backend=false && terraform validate
+        working-directory: terraform/modules/iam-unity-catalog
+
+      - name: Validate — workspace
+        run: terraform init -backend=false && terraform validate
+        working-directory: terraform/modules/workspace
+
+      - name: Validate — databricks
+        run: terraform init -backend=false && terraform validate
+        working-directory: terraform/modules/databricks
+
+      - name: Validate — unity-catalog
+        run: terraform init -backend=false && terraform validate
+        working-directory: terraform/modules/unity-catalog
 
       - name: Setup TFLint
         uses: terraform-linters/setup-tflint@v4
         with:
           tflint_version: ${{ env.TFLINT_VERSION }}
 
-      - name: TFLint Init
-        run: tflint --init
-        working-directory: ${{ env.WORKING_DIR }}
+      - name: TFLint — s3
+        run: tflint --init && tflint --format compact
+        working-directory: terraform/modules/s3
 
-      - name: TFLint Run
-        run: tflint --format compact
-        working-directory: ${{ env.WORKING_DIR }}
+      - name: TFLint — iam-unity-catalog
+        run: tflint --init && tflint --format compact
+        working-directory: terraform/modules/iam-unity-catalog
 
   # ──────────────────────────────────────────────────────────────
   # Stage 2: Mock Unit Tests
@@ -69,8 +81,7 @@ jobs:
     needs: [static-analysis]
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -79,11 +90,11 @@ jobs:
 
       - name: Terraform Init
         run: terraform init -backend=false
-        working-directory: ${{ env.WORKING_DIR }}
+        working-directory: ${{ env.S3_MODULE }}
 
       - name: Run Mock Unit Tests
         run: terraform test -filter=tests/mock_unit.tftest.hcl -verbose
-        working-directory: ${{ env.WORKING_DIR }}
+        working-directory: ${{ env.S3_MODULE }}
 
   # ──────────────────────────────────────────────────────────────
   # Stage 3: Plan + Cost Estimation (PR only)
@@ -102,8 +113,7 @@ jobs:
       AWS_DEFAULT_REGION: us-east-1
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -111,17 +121,17 @@ jobs:
           terraform_version: ${{ env.TF_VERSION }}
           terraform_wrapper: false # Required: Infracost needs raw JSON output
 
-      - name: Terraform Init (module)
+      - name: Terraform Init (s3 module)
         run: terraform init -backend=false
-        working-directory: ${{ env.WORKING_DIR }}
+        working-directory: ${{ env.S3_MODULE }}
 
       - name: Run Plan Validation Tests
         run: terraform test -filter=tests/plan_validation.tftest.hcl -verbose
-        working-directory: ${{ env.WORKING_DIR }}
+        working-directory: ${{ env.S3_MODULE }}
 
       - name: Terraform Init (complete example)
         run: terraform init
-        working-directory: ${{ env.WORKING_DIR }}/examples/complete
+        working-directory: ${{ env.S3_MODULE }}/examples/complete
 
       - name: Terraform Plan (complete example)
         run: |
@@ -129,7 +139,7 @@ jobs:
             -out=tfplan.binary \
             -var="bucket_name=infracost-estimate-bucket" \
             -var="kms_master_key_id=arn:aws:kms:us-east-1:123456789012:key/placeholder"
-        working-directory: ${{ env.WORKING_DIR }}/examples/complete
+        working-directory: ${{ env.S3_MODULE }}/examples/complete
 
       - name: Setup Infracost
         uses: infracost/actions/setup@v3
@@ -139,7 +149,7 @@ jobs:
       - name: Generate Cost Estimate (PR branch)
         run: |
           infracost breakdown \
-            --path=${{ env.WORKING_DIR }}/examples/complete \
+            --path=${{ env.S3_MODULE }}/examples/complete \
             --terraform-plan-flags="-var=bucket_name=infracost-estimate-bucket -var=kms_master_key_id=arn:aws:kms:us-east-1:123456789012:key/placeholder" \
             --format=json \
             --out-file=/tmp/infracost-pr.json
@@ -153,7 +163,7 @@ jobs:
       - name: Generate Cost Estimate (base branch)
         run: |
           infracost breakdown \
-            --path=base-branch/${{ env.WORKING_DIR }}/examples/complete \
+            --path=base-branch/${{ env.S3_MODULE }}/examples/complete \
             --terraform-plan-flags="-var=bucket_name=infracost-estimate-bucket -var=kms_master_key_id=arn:aws:kms:us-east-1:123456789012:key/placeholder" \
             --format=json \
             --out-file=/tmp/infracost-base.json
@@ -196,8 +206,7 @@ jobs:
       AWS_DEFAULT_REGION: us-east-1
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
@@ -206,9 +215,9 @@ jobs:
 
       - name: Terraform Init
         run: terraform init -backend=false
-        working-directory: ${{ env.WORKING_DIR }}
+        working-directory: ${{ env.S3_MODULE }}
 
       - name: Run Apply Integration Tests
         run: terraform test -filter=tests/apply_encryption.tftest.hcl -verbose
-        working-directory: ${{ env.WORKING_DIR }}
+        working-directory: ${{ env.S3_MODULE }}
         timeout-minutes: 15

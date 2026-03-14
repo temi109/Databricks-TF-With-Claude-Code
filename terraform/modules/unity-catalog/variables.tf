@@ -29,7 +29,7 @@ variable "catalogs" {
 variable "schemas" {
   description = "Schema names to create within each catalog."
   type        = list(string)
-  default     = ["bronze", "silver", "gold"]
+  default     = ["raw", "bronze", "silver", "gold"]
 }
 
 variable "force_destroy" {

@@ -1,6 +1,6 @@
 ---
 name: databricks-unity-catalog
-description: Deploy Databricks Unity Catalog infrastructure on AWS using Terraform — creates workspace, S3 buckets, IAM roles with self-assuming trust, storage credentials, one external location per environment, catalogs with per-project storage roots, bronze/silver/gold schemas, and workspace user assignments. Uses dual Databricks providers (account-level + workspace-level) with service principal OAuth.
+description: Deploy Databricks Unity Catalog infrastructure on AWS using Terraform — creates workspace, S3 buckets, IAM roles with self-assuming trust, storage credentials, one external location per environment, catalogs with per-project storage roots, raw/bronze/silver/gold schemas, and workspace user assignments. Uses dual Databricks providers (account-level + workspace-level) with service principal OAuth.
 ---
 
 # Databricks Unity Catalog Infrastructure Skill
@@ -13,7 +13,7 @@ Deploys a complete Databricks Unity Catalog setup on AWS using modular Terraform
 - Setting up Unity Catalog for a new Databricks workspace on AWS
 - Adding a new project or environment to an existing UC deployment
 - Troubleshooting IAM trust policies for Databricks storage credentials
-- Creating S3 bucket structures for medallion architecture (bronze/silver/gold)
+- Creating S3 bucket structures for medallion architecture (raw/bronze/silver/gold)
 - Granting users workspace access or managing workspace permissions
 
 ## Architecture Overview
@@ -34,6 +34,7 @@ Unity Catalog (workspace-level provider)
 ├── External Location: {env}-lakehouse → s3://{prefix}-lakehouse/{env}/   (one per environment)
 ├── Catalog: {project}_{env}
 │   ├── storage_root = s3://{prefix}-lakehouse/{env}/{project}/   (subdir of ext loc)
+│   ├── Schema: raw
 │   ├── Schema: bronze
 │   ├── Schema: silver
 │   └── Schema: gold
@@ -42,7 +43,7 @@ Unity Catalog (workspace-level provider)
 S3 Buckets:
   {prefix}-metastore           → metastore root storage (shared)
   {prefix}-lakehouse           → single shared bucket with env/project prefixes
-    └── {env}/{project}/bronze/silver/gold/
+    └── {env}/{project}/raw/bronze/silver/gold/
 
 IAM:
   Role: {prefix}-uc-role       → assumed by Databricks, grants S3 access
@@ -354,14 +355,14 @@ locals {
 
 ### S3 Schema Folders
 
-Create empty S3 objects as folder markers for bronze/silver/gold with environment/project prefixes in the shared lakehouse bucket:
+Create empty S3 objects as folder markers for raw/bronze/silver/gold with environment/project prefixes in the shared lakehouse bucket:
 
 ```hcl
 resource "aws_s3_object" "schema_folders" {
   for_each = local.bucket_schema_folders
 
   bucket  = each.value.bucket_id
-  key     = each.value.key  # e.g. "dev/nyc-taxi/bronze/"
+  key     = each.value.key  # e.g. "dev/nyc-taxi/raw/"
   content = ""
 }
 ```
@@ -423,7 +424,7 @@ module "databricks" {
 ```
 
 This automatically creates:
-- S3 folder markers: `{env}/new-project/bronze/`, `silver/`, `gold/`
+- S3 folder markers: `{env}/new-project/raw/`, `bronze/`, `silver/`, `gold/`
 - A new catalog `new_project_{env}` with `storage_root = s3://{bucket}/{env}/new-project`
 - Bronze/silver/gold schemas inside the catalog
 

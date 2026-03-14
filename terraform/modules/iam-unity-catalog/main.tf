@@ -1,25 +1,7 @@
 data "aws_caller_identity" "this" {}
 
-# Step 1: Trust policy with only Databricks principal (for initial role creation)
-data "aws_iam_policy_document" "databricks_trust" {
-  statement {
-    effect  = "Allow"
-    actions = ["sts:AssumeRole"]
-
-    principals {
-      type        = "AWS"
-      identifiers = [var.databricks_unity_catalog_role_arn]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "sts:ExternalId"
-      values   = [var.databricks_account_id]
-    }
-  }
-}
-
-# Step 2: Full trust policy including self-assume (applied after role exists)
+# Full trust policy: Databricks principal + self-assume
+# Self-assume ARN is computed from account ID + role name (avoids circular reference)
 data "aws_iam_policy_document" "full_trust" {
   # Databricks assumes this role — ExternalId prevents confused deputy
   statement {
@@ -45,7 +27,7 @@ data "aws_iam_policy_document" "full_trust" {
 
     principals {
       type        = "AWS"
-      identifiers = [aws_iam_role.this.arn]
+      identifiers = ["arn:aws:iam::${data.aws_caller_identity.this.account_id}:role/${var.role_name}"]
     }
   }
 }
@@ -69,30 +51,10 @@ data "aws_iam_policy_document" "s3_access" {
   }
 }
 
-# Create role with Databricks-only trust (avoids chicken-and-egg with self-assume)
 resource "aws_iam_role" "this" {
   name               = var.role_name
-  assume_role_policy = data.aws_iam_policy_document.databricks_trust.json
+  assume_role_policy = data.aws_iam_policy_document.full_trust.json
   tags               = var.tags
-
-  lifecycle {
-    ignore_changes = [assume_role_policy]
-  }
-}
-
-# After role exists, update trust policy to add self-assume
-resource "terraform_data" "self_assume_trust" {
-  depends_on = [aws_iam_role.this]
-
-  input = data.aws_iam_policy_document.full_trust.json
-
-  provisioner "local-exec" {
-    command = <<-EOF
-      aws iam update-assume-role-policy \
-        --role-name '${var.role_name}' \
-        --policy-document '${data.aws_iam_policy_document.full_trust.json}'
-    EOF
-  }
 }
 
 resource "aws_iam_policy" "this" {
