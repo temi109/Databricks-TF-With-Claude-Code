@@ -16,6 +16,82 @@ Deploys a complete Databricks Unity Catalog setup on AWS using modular Terraform
 - Creating S3 bucket structures for medallion architecture (raw/bronze/silver/gold)
 - Granting users workspace access or managing workspace permissions
 
+## How to Use This Skill
+
+This skill is loaded automatically when you work in this repository. Reference it by asking questions in natural language — no special invocation needed.
+
+**Example prompts:**
+- "Add a new project called `orders` to both dev and prod"
+- "Why is my storage credential validation failing with 'non self-assuming'?"
+- "Walk me through deploying this infra from scratch"
+- "What IAM permissions does the Unity Catalog role need?"
+- "Add a `staging` environment to the `nyc_taxi` project"
+- "What's the correct order to run terraform apply?"
+
+## This Repository's Exact Infrastructure
+
+All resource names, regions, and IDs used in this deployment:
+
+### Workspace
+| Attribute | Value |
+|-----------|-------|
+| Workspace name | `ti-databricks-tf-eu` |
+| Workspace URL | `https://dbc-e1000168-a972.cloud.databricks.com` |
+| Region | `eu-west-2` |
+| Databricks Account ID | `27c1abec-ad84-4ef9-97c0-6e6c5d130ccd` |
+
+### AWS Resources
+| Resource | Name |
+|----------|------|
+| Cross-account IAM role | `ti-databricks-tf-eu-cross-account` |
+| Root S3 bucket | `ti-databricks-tf-eu-root-storage` |
+| Metastore S3 bucket | `ti-databricks-tf-metastore` |
+| Lakehouse S3 bucket | `ti-databricks-tf-lakehouse` |
+| Unity Catalog IAM role | `ti-databricks-tf-uc-role` |
+| IAM access policy | `ti-databricks-tf-uc-role-s3-access` |
+
+### Databricks Unity Catalog
+| Resource | Value |
+|----------|-------|
+| Metastore name | `ti-databricks-tf-eu-metastore` |
+| Storage credential | `ti-databricks-tf-storage-credential` |
+| External locations | `dev-lakehouse` → `s3://ti-databricks-tf-lakehouse/dev` |
+| | `prod-lakehouse` → `s3://ti-databricks-tf-lakehouse/prod` |
+| Catalogs | `nyc_taxi_dev`, `nyc_taxi_prod` |
+| Schemas per catalog | `raw`, `bronze`, `silver`, `gold` |
+| Admin user | `temidayo.ibraheem@gmail.com` |
+
+### S3 Folder Structure (Lakehouse Bucket)
+```
+ti-databricks-tf-lakehouse/
+├── dev/
+│   └── nyc-taxi/
+│       ├── raw/
+│       ├── bronze/
+│       ├── silver/
+│       └── gold/
+└── prod/
+    └── nyc-taxi/
+        ├── raw/
+        ├── bronze/
+        ├── silver/
+        └── gold/
+```
+
+### Projects Configuration (`modules/databricks/variables.tf`)
+```hcl
+projects = {
+  nyc_taxi = {
+    environments = ["dev", "prod"]
+  }
+}
+schemas = ["raw", "bronze", "silver", "gold"]
+admins  = ["temidayo.ibraheem@gmail.com"]
+```
+
+### Terraform Entry Point
+All deployments run from `terraform/dev/`. The `databricks_workspace_url` variable in `terraform/dev/variables.tf` must be updated after first apply (workspace URL is only known after workspace creation).
+
 ## Architecture Overview
 
 ```

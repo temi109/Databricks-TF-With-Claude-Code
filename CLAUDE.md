@@ -91,11 +91,15 @@ Unity Catalog storage credential validation requires the IAM role to self-assume
 
 ### CI pipeline (`.github/workflows/ci.yml`)
 
-4 stages, all scoped to `modules/s3/`:
-1. **Static analysis** — fmt, validate, tflint (every push)
-2. **Mock unit tests** — no AWS credentials, free (every push)
-3. **Plan + Infracost** — PR only; fails if monthly cost increase > $50
-4. **Integration tests** — main branch only; real AWS resources, auto-destroyed
+4 stages. First 3 run on every push with no secrets; stage 4 is main-branch only.
+Stages 2–4 are scoped to `modules/s3/`.
+
+1. **Static analysis** — fmt (all of `terraform/`), validate per-module (s3, iam-unity-catalog,
+   workspace, unity-catalog), tflint (s3, iam-unity-catalog). Every push, no secrets.
+2. **Mock unit tests** — `mock_unit.tftest.hcl`, mock providers, no AWS credentials. Every push.
+3. **Plan validation** — `plan_validation.tftest.hcl`, dummy AWS creds baked into test file. Every push.
+4. **Integration tests** — `apply_encryption.tftest.hcl`, real AWS resources, auto-destroyed.
+   Main branch only. Needs `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY` secrets.
 
 ---
 
