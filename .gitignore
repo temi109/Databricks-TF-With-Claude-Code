@@ -1,0 +1,27 @@
+# Terraform
+**/.terraform/*
+**.tfstate
+**.tfstate.*
+**.tfstate.backup
+**.tfvars
+**.tfvars.json
+**/.terraform.lock.hcl
+**/crash.log
+**/crash.*.log
+**/.terraformrc
+**/terraform.rc
+.vscode
+venv/
+
+# Airflow
+logs/
+**logs/*
+*.cfg
+*.db
+__pycache__/
+*.pyc
+.venv/
+.DS_Store
+.idea/
+webserver_config.py
+**.env

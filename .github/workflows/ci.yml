@@ -1,0 +1,214 @@
+name: Terraform S3 Module CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  TF_VERSION: "1.9.0"
+  TFLINT_VERSION: "v0.50.3"
+  WORKING_DIR: modules/s3
+
+jobs:
+  # ──────────────────────────────────────────────────────────────
+  # Stage 1: Static Analysis
+  # Runs on every push. Fast, free, no AWS credentials needed.
+  # ──────────────────────────────────────────────────────────────
+  static-analysis:
+    name: Static Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+        working-directory: ${{ env.WORKING_DIR }}
+
+      - name: Terraform Init
+        run: terraform init -backend=false
+        working-directory: ${{ env.WORKING_DIR }}
+
+      - name: Terraform Validate
+        run: terraform validate
+        working-directory: ${{ env.WORKING_DIR }}
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: ${{ env.TFLINT_VERSION }}
+
+      - name: TFLint Init
+        run: tflint --init
+        working-directory: ${{ env.WORKING_DIR }}
+
+      - name: TFLint Run
+        run: tflint --format compact
+        working-directory: ${{ env.WORKING_DIR }}
+
+  # ──────────────────────────────────────────────────────────────
+  # Stage 2: Mock Unit Tests
+  # Runs on every push. Requires Terraform 1.7+ mock providers.
+  # No AWS credentials needed. Cost: $0.
+  # ──────────────────────────────────────────────────────────────
+  mock-tests:
+    name: Mock Unit Tests
+    runs-on: ubuntu-latest
+    needs: [static-analysis]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        run: terraform init -backend=false
+        working-directory: ${{ env.WORKING_DIR }}
+
+      - name: Run Mock Unit Tests
+        run: terraform test -filter=tests/mock_unit.tftest.hcl -verbose
+        working-directory: ${{ env.WORKING_DIR }}
+
+  # ──────────────────────────────────────────────────────────────
+  # Stage 3: Plan + Cost Estimation (PR only)
+  # Posts an Infracost cost diff comment to the PR.
+  # terraform_wrapper must be false for Infracost JSON parsing.
+  # ──────────────────────────────────────────────────────────────
+  plan-and-cost:
+    name: Plan & Cost Estimation
+    runs-on: ubuntu-latest
+    needs: [mock-tests]
+    if: github.event_name == 'pull_request'
+
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: us-east-1
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false # Required: Infracost needs raw JSON output
+
+      - name: Terraform Init (module)
+        run: terraform init -backend=false
+        working-directory: ${{ env.WORKING_DIR }}
+
+      - name: Run Plan Validation Tests
+        run: terraform test -filter=tests/plan_validation.tftest.hcl -verbose
+        working-directory: ${{ env.WORKING_DIR }}
+
+      - name: Terraform Init (complete example)
+        run: terraform init
+        working-directory: ${{ env.WORKING_DIR }}/examples/complete
+
+      - name: Terraform Plan (complete example)
+        run: |
+          terraform plan \
+            -out=tfplan.binary \
+            -var="bucket_name=infracost-estimate-bucket" \
+            -var="kms_master_key_id=arn:aws:kms:us-east-1:123456789012:key/placeholder"
+        working-directory: ${{ env.WORKING_DIR }}/examples/complete
+
+      - name: Setup Infracost
+        uses: infracost/actions/setup@v3
+        with:
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
+
+      - name: Generate Cost Estimate (PR branch)
+        run: |
+          infracost breakdown \
+            --path=${{ env.WORKING_DIR }}/examples/complete \
+            --terraform-plan-flags="-var=bucket_name=infracost-estimate-bucket -var=kms_master_key_id=arn:aws:kms:us-east-1:123456789012:key/placeholder" \
+            --format=json \
+            --out-file=/tmp/infracost-pr.json
+
+      - name: Checkout base branch for cost diff
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          path: base-branch
+
+      - name: Generate Cost Estimate (base branch)
+        run: |
+          infracost breakdown \
+            --path=base-branch/${{ env.WORKING_DIR }}/examples/complete \
+            --terraform-plan-flags="-var=bucket_name=infracost-estimate-bucket -var=kms_master_key_id=arn:aws:kms:us-east-1:123456789012:key/placeholder" \
+            --format=json \
+            --out-file=/tmp/infracost-base.json
+        continue-on-error: true # Base branch may not have the example yet
+
+      - name: Post Infracost Comment on PR
+        run: |
+          infracost comment github \
+            --path=/tmp/infracost-pr.json \
+            --repo=$GITHUB_REPOSITORY \
+            --pull-request=${{ github.event.pull_request.number }} \
+            --github-token=${{ secrets.GITHUB_TOKEN }} \
+            --behavior=update
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check Cost Threshold ($50/month max increase)
+        run: |
+          infracost diff \
+            --path=/tmp/infracost-pr.json \
+            --compare-to=/tmp/infracost-base.json \
+            --format=json | \
+          jq -e '.diffTotalMonthlyCost | tonumber < 50' || \
+          (echo "ERROR: Monthly cost increase exceeds \$50 threshold" && exit 1)
+
+  # ──────────────────────────────────────────────────────────────
+  # Stage 4: Integration Tests (merge to main only)
+  # Creates real AWS resources via terraform test command.
+  # Resources are auto-destroyed after each run block.
+  # ──────────────────────────────────────────────────────────────
+  integration-tests:
+    name: Integration Tests (Apply)
+    runs-on: ubuntu-latest
+    needs: [mock-tests]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: us-east-1
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        run: terraform init -backend=false
+        working-directory: ${{ env.WORKING_DIR }}
+
+      - name: Run Apply Integration Tests
+        run: terraform test -filter=tests/apply_encryption.tftest.hcl -verbose
+        working-directory: ${{ env.WORKING_DIR }}
+        timeout-minutes: 15

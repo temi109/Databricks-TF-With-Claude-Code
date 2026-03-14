@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(statusline)",
+      "Bash(cd:*)",
+      "Bash(terraform test:*)",
+      "Bash(find:*)"
+    ]
+  }
+}

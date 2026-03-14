@@ -1,0 +1,7 @@
+version: 0.1
+
+projects:
+  - path: modules/s3/examples/complete
+    name: s3-complete-example
+    env:
+      AWS_DEFAULT_REGION: us-east-1
