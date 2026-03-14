@@ -37,6 +37,7 @@ jobs:
         run: terraform fmt -check -recursive
         working-directory: terraform
 
+      # Pure AWS modules — no provider config needed
       - name: Validate — s3
         run: terraform init -backend=false && terraform validate
         working-directory: terraform/modules/s3
@@ -45,17 +46,24 @@ jobs:
         run: terraform init -backend=false && terraform validate
         working-directory: terraform/modules/iam-unity-catalog
 
+      # Databricks modules — DATABRICKS_HOST required to satisfy provider init
       - name: Validate — workspace
         run: terraform init -backend=false && terraform validate
         working-directory: terraform/modules/workspace
-
-      - name: Validate — databricks
-        run: terraform init -backend=false && terraform validate
-        working-directory: terraform/modules/databricks
+        env:
+          DATABRICKS_HOST: https://accounts.cloud.databricks.com
+          DATABRICKS_TOKEN: dummy
 
       - name: Validate — unity-catalog
         run: terraform init -backend=false && terraform validate
         working-directory: terraform/modules/unity-catalog
+        env:
+          DATABRICKS_HOST: https://accounts.cloud.databricks.com
+          DATABRICKS_TOKEN: dummy
+
+      # The databricks module uses configuration_aliases = [databricks.workspace]
+      # and cannot be validated standalone — the alias is injected by the root module.
+      # It is covered by fmt + tflint instead.
 
       - name: Setup TFLint
         uses: terraform-linters/setup-tflint@v4
