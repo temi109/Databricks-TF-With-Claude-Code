@@ -16,8 +16,8 @@ variable "environment" {
   default     = "dev"
 
   validation {
-    condition     = contains(["dev", "staging", "prod"], var.environment)
-    error_message = "Environment must be one of: dev, staging, prod."
+    condition     = contains(["dev", "staging", "prod", "shared"], var.environment)
+    error_message = "Environment must be one of: dev, staging, prod, shared."
   }
 
   nullable = false

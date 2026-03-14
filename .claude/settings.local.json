@@ -4,7 +4,27 @@
       "Skill(statusline)",
       "Bash(cd:*)",
       "Bash(terraform test:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(terraform validate:*)",
+      "Bash(terraform plan:*)",
+      "Bash(databricks unity-catalog:*)",
+      "Bash(terraform init:*)",
+      "Bash(terraform apply:*)",
+      "Bash(terraform state:*)",
+      "Bash(curl:*)",
+      "Bash(terraform providers:*)",
+      "Bash(aws iam:*)",
+      "Bash(terraform destroy:*)",
+      "Bash(which databricks:*)",
+      "Bash(databricks auth:*)",
+      "Bash(terraform taint:*)",
+      "Bash(terraform:*)",
+      "Bash(env | grep -i DATABRICKS 2>&1)",
+      "Bash(env | grep -i TF_VAR 2>&1)",
+      "Bash(ls:*)",
+      "Bash(databricks account:*)",
+      "Bash(databricks external-locations:*)",
+      "Bash(databricks api:*)"
     ]
   }
 }
