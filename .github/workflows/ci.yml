@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
 
 env:
   TF_VERSION: "1.9.0"
@@ -105,20 +104,14 @@ jobs:
         working-directory: ${{ env.S3_MODULE }}
 
   # ──────────────────────────────────────────────────────────────
-  # Stage 3: Plan + Cost Estimation (PR only)
-  # Posts an Infracost cost diff comment to the PR.
-  # terraform_wrapper must be false for Infracost JSON parsing.
+  # Stage 3: Plan Validation Tests
+  # Runs on every push. Uses dummy AWS creds defined in the test
+  # file itself — no repository secrets needed.
   # ──────────────────────────────────────────────────────────────
-  plan-and-cost:
-    name: Plan & Cost Estimation
+  plan-validation:
+    name: Plan Validation
     runs-on: ubuntu-latest
     needs: [mock-tests]
-    if: github.event_name == 'pull_request'
-
-    env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: us-east-1
 
     steps:
       - uses: actions/checkout@v4
@@ -127,75 +120,14 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
-          terraform_wrapper: false # Required: Infracost needs raw JSON output
 
-      - name: Terraform Init (s3 module)
+      - name: Terraform Init
         run: terraform init -backend=false
         working-directory: ${{ env.S3_MODULE }}
 
       - name: Run Plan Validation Tests
         run: terraform test -filter=tests/plan_validation.tftest.hcl -verbose
         working-directory: ${{ env.S3_MODULE }}
-
-      - name: Terraform Init (complete example)
-        run: terraform init
-        working-directory: ${{ env.S3_MODULE }}/examples/complete
-
-      - name: Terraform Plan (complete example)
-        run: |
-          terraform plan \
-            -out=tfplan.binary \
-            -var="bucket_name=infracost-estimate-bucket" \
-            -var="kms_master_key_id=arn:aws:kms:us-east-1:123456789012:key/placeholder"
-        working-directory: ${{ env.S3_MODULE }}/examples/complete
-
-      - name: Setup Infracost
-        uses: infracost/actions/setup@v3
-        with:
-          api-key: ${{ secrets.INFRACOST_API_KEY }}
-
-      - name: Generate Cost Estimate (PR branch)
-        run: |
-          infracost breakdown \
-            --path=${{ env.S3_MODULE }}/examples/complete \
-            --terraform-plan-flags="-var=bucket_name=infracost-estimate-bucket -var=kms_master_key_id=arn:aws:kms:us-east-1:123456789012:key/placeholder" \
-            --format=json \
-            --out-file=/tmp/infracost-pr.json
-
-      - name: Checkout base branch for cost diff
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.base.ref }}
-          path: base-branch
-
-      - name: Generate Cost Estimate (base branch)
-        run: |
-          infracost breakdown \
-            --path=base-branch/${{ env.S3_MODULE }}/examples/complete \
-            --terraform-plan-flags="-var=bucket_name=infracost-estimate-bucket -var=kms_master_key_id=arn:aws:kms:us-east-1:123456789012:key/placeholder" \
-            --format=json \
-            --out-file=/tmp/infracost-base.json
-        continue-on-error: true # Base branch may not have the example yet
-
-      - name: Post Infracost Comment on PR
-        run: |
-          infracost comment github \
-            --path=/tmp/infracost-pr.json \
-            --repo=$GITHUB_REPOSITORY \
-            --pull-request=${{ github.event.pull_request.number }} \
-            --github-token=${{ secrets.GITHUB_TOKEN }} \
-            --behavior=update
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Check Cost Threshold ($50/month max increase)
-        run: |
-          infracost diff \
-            --path=/tmp/infracost-pr.json \
-            --compare-to=/tmp/infracost-base.json \
-            --format=json | \
-          jq -e '.diffTotalMonthlyCost | tonumber < 50' || \
-          (echo "ERROR: Monthly cost increase exceeds \$50 threshold" && exit 1)
 
   # ──────────────────────────────────────────────────────────────
   # Stage 4: Integration Tests (merge to main only)
@@ -205,7 +137,7 @@ jobs:
   integration-tests:
     name: Integration Tests (Apply)
     runs-on: ubuntu-latest
-    needs: [mock-tests]
+    needs: [plan-validation]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     env:

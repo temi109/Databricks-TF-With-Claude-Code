@@ -60,8 +60,8 @@ resource "aws_iam_role_policy_attachment" "cross_account" {
 # S3 access for the root storage bucket
 data "aws_iam_policy_document" "root_storage_access" {
   statement {
-    effect    = "Allow"
-    actions   = ["s3:*"]
+    effect  = "Allow"
+    actions = ["s3:*"]
     resources = [
       aws_s3_bucket.root_storage.arn,
       "${aws_s3_bucket.root_storage.arn}/*",
