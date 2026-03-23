@@ -31,22 +31,16 @@ variable "force_destroy_metastore" {
   default     = false
 }
 
-variable "projects" {
-  description = "Map of project name to its environments. Each project×environment pair gets a catalog with prefixed paths in the shared lakehouse bucket."
-  type = map(object({
-    environments = list(string)
-  }))
-  default = {
-    nyc_taxi = {
-      environments = ["dev", "prod"]
-    }
-  }
+variable "catalogs" {
+  description = "List of catalog names. Each catalog gets its own external location and S3 prefix."
+  type        = list(string)
+  default     = ["bronze", "silver", "gold", "bronze_dev", "silver_dev", "gold_dev", "playpen"]
 }
 
-variable "schemas" {
-  description = "Schema names to create within each catalog."
+variable "projects" {
+  description = "List of project names. Each project becomes a schema in every catalog."
   type        = list(string)
-  default     = ["bronze", "silver", "gold"]
+  default     = ["nyc_taxi"]
 }
 
 variable "admins" {

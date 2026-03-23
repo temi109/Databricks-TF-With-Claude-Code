@@ -12,8 +12,7 @@ module "workspace" {
   cross_account_role_name = "ti-databricks-tf-eu-cross-account"
 
   tags = {
-    Environment = var.environment
-    ManagedBy   = "terraform"
+    ManagedBy = "terraform"
   }
 }
 
@@ -36,14 +35,9 @@ module "databricks" {
   databricks_uc_role_arn  = var.databricks_uc_role_arn
   databricks_workspace_id = module.workspace.workspace_id
 
-  projects = {
-    nyc_taxi = {
-      environments = ["dev", "prod"]
-    }
-  }
-
-  schemas = ["raw", "bronze", "silver", "gold"]
-  admins  = ["temidayo.ibraheem@gmail.com"]
+  catalogs = ["bronze", "silver", "gold", "bronze_dev", "silver_dev", "gold_dev", "playpen"]
+  projects = ["nyc_taxi"]
+  admins   = ["Admins"]
 
   depends_on = [module.workspace]
 }

@@ -10,19 +10,6 @@ variable "bucket_name" {
   nullable = false
 }
 
-variable "environment" {
-  description = "Deployment environment. Used for tagging."
-  type        = string
-  default     = "dev"
-
-  validation {
-    condition     = contains(["dev", "staging", "prod", "shared"], var.environment)
-    error_message = "Environment must be one of: dev, staging, prod, shared."
-  }
-
-  nullable = false
-}
-
 variable "tags" {
   description = "Additional tags to merge onto all resources."
   type        = map(string)

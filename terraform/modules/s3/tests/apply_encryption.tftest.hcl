@@ -14,7 +14,6 @@ provider "aws" {
 variables {
   # bucket_name must be unique per run - use a fixed suffix for reproducibility
   bucket_name   = "tf-test-apply-enc-01"
-  environment   = "dev"
   force_destroy = true # Required: allows cleanup after each run block
 }
 

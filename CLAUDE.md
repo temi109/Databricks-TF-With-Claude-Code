@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Commands
 
-All Terraform commands run from `terraform/dev/` (the only environment entry point). The CI pipeline targets `terraform/modules/s3/` for module-level testing.
+All Terraform commands run from `terraform/dev/` (the root entry point). The CI pipeline targets `terraform/modules/s3/` for module-level testing.
 
 ```bash
 # Plan / apply
@@ -62,19 +62,23 @@ The repo uses two Databricks provider aliases:
 
 This provider split is why `modules/unity-catalog/` takes an `iam_role_arn` input rather than creating the IAM role itself.
 
-### Multi-project / multi-environment catalog layout
+### Medallion catalog layout
 
-Projects and environments are configured in `modules/databricks/variables.tf` as a map:
+Seven fixed catalogs represent data quality tiers and environments:
 ```hcl
-projects = { nyc_taxi = { environments = ["dev", "prod"] } }
-schemas  = ["raw", "bronze", "silver", "gold"]
+catalogs = ["bronze", "silver", "gold", "bronze_dev", "silver_dev", "gold_dev", "playpen"]
+projects = ["nyc_taxi"]
 ```
 
-The `databricks` module flattens this into:
-- One catalog per `{project}_{environment}` (e.g. `nyc_taxi_dev`, `nyc_taxi_prod`)
-- Four schemas per catalog (`raw`, `bronze`, `silver`, `gold`)
-- S3 folder prefixes under the shared lakehouse bucket: `{env}/{project}/{schema}/`
-- One external location per environment pointing to `s3://…/{env}/`
+Projects become schemas within each catalog (e.g. `bronze_dev.nyc_taxi`, `gold.nyc_taxi`).
+
+The `databricks` module creates:
+- 7 fixed catalogs (`bronze`, `silver`, `gold`, `bronze_dev`, `silver_dev`, `gold_dev`, `playpen`)
+- One schema per project in every catalog (e.g. `bronze.nyc_taxi`, `playpen.nyc_taxi`)
+- S3 catalog-level folder prefixes under the shared lakehouse bucket: `{catalog}/`
+- A `raw/{project}/` folder in the lakehouse bucket for external data ingestion (project subfolders only exist under `raw/`)
+- One external location per catalog pointing to `s3://…/{catalog}/`, plus a `raw-lakehouse` external location for `s3://…/raw`
+- `ALL PRIVILEGES` grants on external locations, catalogs, and schemas for the `Admins` group
 
 ### IAM trust policy — self-assume requirement
 
@@ -87,7 +91,7 @@ Unity Catalog storage credential validation requires the IAM role to self-assume
 `modules/s3/` is the most complete module with its own tests and examples. It supports:
 - SSE-S3 (default) or KMS encryption (with a `precondition` requiring `kms_master_key_id` when `encryption_type = "aws:kms"`)
 - Optional versioning and lifecycle rules (STANDARD_IA → GLACIER → expiration)
-- Validation on `bucket_name` (regex) and `environment` (enum)
+- Validation on `bucket_name` (regex)
 
 ### CI pipeline (`.github/workflows/ci.yml`)
 

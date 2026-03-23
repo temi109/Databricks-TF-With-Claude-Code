@@ -25,7 +25,10 @@
       "Bash(databricks account:*)",
       "Bash(databricks external-locations:*)",
       "Bash(databricks api:*)",
-      "Bash(terraform fmt:*)"
+      "Bash(terraform fmt:*)",
+      "Bash(git mv:*)",
+      "Bash(aws s3:*)",
+      "Bash(aws s3api:*)"
     ]
   }
 }

@@ -3,12 +3,6 @@ variable "bucket_name" {
   type        = string
 }
 
-variable "environment" {
-  description = "Deployment environment."
-  type        = string
-  default     = "prod"
-}
-
 variable "force_destroy" {
   description = "Whether to delete all objects before destroying the bucket."
   type        = bool

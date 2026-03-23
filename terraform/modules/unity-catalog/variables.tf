@@ -14,7 +14,7 @@ variable "storage_credential_name" {
 }
 
 variable "external_locations" {
-  description = "Map of external location name to S3 URL. One per environment."
+  description = "Map of external location name to S3 URL. One per catalog."
   type        = map(string)
 }
 
@@ -26,10 +26,10 @@ variable "catalogs" {
   }))
 }
 
-variable "schemas" {
-  description = "Schema names to create within each catalog."
+variable "projects" {
+  description = "Project names to create as schemas within each catalog."
   type        = list(string)
-  default     = ["raw", "bronze", "silver", "gold"]
+  default     = []
 }
 
 variable "force_destroy" {

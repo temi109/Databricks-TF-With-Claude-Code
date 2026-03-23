@@ -1,9 +1,8 @@
 locals {
   common_tags = merge(
     {
-      Environment = var.environment
-      ManagedBy   = "terraform"
-      Module      = "s3"
+      ManagedBy = "terraform"
+      Module    = "s3"
     },
     var.tags
   )

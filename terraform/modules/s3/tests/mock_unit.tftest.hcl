@@ -39,7 +39,6 @@ mock_provider "aws" {
 
 variables {
   bucket_name   = "mock-unit-test-bucket-01"
-  environment   = "dev"
   force_destroy = true
 }
 

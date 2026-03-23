@@ -4,7 +4,6 @@ module "s3_bucket" {
   source = "../../"
 
   bucket_name        = var.bucket_name
-  environment        = var.environment
   force_destroy      = var.force_destroy
   versioning_enabled = true
   encryption_type    = var.encryption_type

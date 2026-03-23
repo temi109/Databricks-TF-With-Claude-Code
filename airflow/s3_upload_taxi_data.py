@@ -67,6 +67,6 @@ def upload_file(local_file: str, s3_uri: str):
 if __name__ == "__main__":
 
     LOCAL_FILE = "./airflow/data/taxi_data/nyc_taxi_data.csv"
-    S3_URI = "s3://ti-databricks-tf-eu-lakehouse/dev/nyc-taxi/raw/"
+    S3_URI = "s3://ti-databricks-tf-eu-lakehouse/raw/nyc-taxi/"
 
     upload_file(LOCAL_FILE, S3_URI)

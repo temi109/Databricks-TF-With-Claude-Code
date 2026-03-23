@@ -1,6 +1,5 @@
 variables {
   bucket_name = "test-plan-validation-bucket-01"
-  environment = "dev"
 }
 
 provider "aws" {
@@ -91,31 +90,13 @@ run "kms_without_key_fails_precondition" {
   ]
 }
 
-run "invalid_environment_rejected" {
-  command = plan
-
-  variables {
-    environment = "production"
-  }
-
-  expect_failures = [
-    var.environment
-  ]
-}
-
 run "tags_are_merged_correctly" {
   command = plan
 
   variables {
-    environment = "staging"
     tags = {
       Owner = "platform-team"
     }
-  }
-
-  assert {
-    condition     = aws_s3_bucket.this.tags["Environment"] == "staging"
-    error_message = "Environment tag must reflect the environment variable."
   }
 
   assert {

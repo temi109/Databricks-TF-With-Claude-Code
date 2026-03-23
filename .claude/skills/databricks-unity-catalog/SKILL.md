@@ -1,19 +1,19 @@
 ---
 name: databricks-unity-catalog
-description: Deploy Databricks Unity Catalog infrastructure on AWS using Terraform — creates workspace, S3 buckets, IAM roles with self-assuming trust, storage credentials, one external location per environment, catalogs with per-project storage roots, raw/bronze/silver/gold schemas, and workspace user assignments. Uses dual Databricks providers (account-level + workspace-level) with service principal OAuth.
+description: Deploy Databricks Unity Catalog infrastructure on AWS using Terraform — creates workspace, S3 buckets, IAM roles with self-assuming trust, storage credentials, one external location per catalog, 7 medallion catalogs (bronze/silver/gold + dev variants + playpen), projects as schemas, and workspace user assignments. Uses dual Databricks providers (account-level + workspace-level) with service principal OAuth.
 ---
 
 # Databricks Unity Catalog Infrastructure Skill
 
-Deploys a complete Databricks Unity Catalog setup on AWS using modular Terraform. Covers workspace creation, S3 storage, IAM plumbing, the full UC hierarchy (metastore → catalog → schema), and workspace access management.
+Deploys a complete Databricks Unity Catalog setup on AWS using modular Terraform. Uses a medallion catalog layout — 7 fixed catalogs (bronze, silver, gold + dev variants + playpen) with projects as schemas. Covers workspace creation, S3 storage, IAM plumbing, the full UC hierarchy (metastore → catalog → schema), and workspace access management.
 
 ## When to Use This Skill
 
 **Activate when:**
 - Setting up Unity Catalog for a new Databricks workspace on AWS
-- Adding a new project or environment to an existing UC deployment
+- Adding a new project to the medallion catalog layout
 - Troubleshooting IAM trust policies for Databricks storage credentials
-- Creating S3 bucket structures for medallion architecture (raw/bronze/silver/gold)
+- Creating S3 bucket structures for the catalog/project layout
 - Granting users workspace access or managing workspace permissions
 
 ## How to Use This Skill
@@ -21,11 +21,11 @@ Deploys a complete Databricks Unity Catalog setup on AWS using modular Terraform
 This skill is loaded automatically when you work in this repository. Reference it by asking questions in natural language — no special invocation needed.
 
 **Example prompts:**
-- "Add a new project called `orders` to both dev and prod"
+- "Add a new project called `orders` to the catalogs"
 - "Why is my storage credential validation failing with 'non self-assuming'?"
 - "Walk me through deploying this infra from scratch"
 - "What IAM permissions does the Unity Catalog role need?"
-- "Add a `staging` environment to the `nyc_taxi` project"
+- "Add a new catalog called `staging`"
 - "What's the correct order to run terraform apply?"
 
 ## This Repository's Exact Infrastructure
@@ -45,48 +45,43 @@ All resource names, regions, and IDs used in this deployment:
 |----------|------|
 | Cross-account IAM role | `ti-databricks-tf-eu-cross-account` |
 | Root S3 bucket | `ti-databricks-tf-eu-root-storage` |
-| Metastore S3 bucket | `ti-databricks-tf-metastore` |
-| Lakehouse S3 bucket | `ti-databricks-tf-lakehouse` |
-| Unity Catalog IAM role | `ti-databricks-tf-uc-role` |
-| IAM access policy | `ti-databricks-tf-uc-role-s3-access` |
+| Metastore S3 bucket | `ti-databricks-tf-eu-metastore` |
+| Lakehouse S3 bucket | `ti-databricks-tf-eu-lakehouse` |
+| Unity Catalog IAM role | `ti-databricks-tf-eu-uc-role` |
+| IAM access policy | `ti-databricks-tf-eu-uc-role-s3-access` |
 
 ### Databricks Unity Catalog
 | Resource | Value |
 |----------|-------|
 | Metastore name | `ti-databricks-tf-eu-metastore` |
-| Storage credential | `ti-databricks-tf-storage-credential` |
-| External locations | `dev-lakehouse` → `s3://ti-databricks-tf-lakehouse/dev` |
-| | `prod-lakehouse` → `s3://ti-databricks-tf-lakehouse/prod` |
-| Catalogs | `nyc_taxi_dev`, `nyc_taxi_prod` |
-| Schemas per catalog | `raw`, `bronze`, `silver`, `gold` |
-| Admin user | `temidayo.ibraheem@gmail.com` |
+| Storage credential | `ti-databricks-tf-eu-storage-credential` |
+| External locations | One per catalog + raw: `bronze-lakehouse`, `silver-lakehouse`, `gold-lakehouse`, `bronze-dev-lakehouse`, `silver-dev-lakehouse`, `gold-dev-lakehouse`, `playpen-lakehouse`, `raw-lakehouse` |
+| Catalogs | `bronze`, `silver`, `gold`, `bronze_dev`, `silver_dev`, `gold_dev`, `playpen` |
+| Schemas (projects) per catalog | `nyc_taxi` |
+| Grants | `Admins` group gets `ALL PRIVILEGES` on all external locations, catalogs, and schemas |
+| Admin user (workspace access) | `temidayo.ibraheem@gmail.com` |
 
 ### S3 Folder Structure (Lakehouse Bucket)
 ```
-ti-databricks-tf-lakehouse/
-├── dev/
-│   └── nyc-taxi/
-│       ├── raw/
-│       ├── bronze/
-│       ├── silver/
-│       └── gold/
-└── prod/
+ti-databricks-tf-eu-lakehouse/
+├── bronze/
+├── silver/
+├── gold/
+├── bronze-dev/
+├── silver-dev/
+├── gold-dev/
+├── playpen/
+└── raw/
     └── nyc-taxi/
-        ├── raw/
-        ├── bronze/
-        ├── silver/
-        └── gold/
 ```
 
-### Projects Configuration (`modules/databricks/variables.tf`)
+Project data folders (e.g. `nyc-taxi/`) only exist under `raw/` for external data ingestion. Catalog folders are empty prefixes — Unity Catalog manages data placement within them automatically.
+
+### Catalog & Project Configuration (`modules/databricks/variables.tf`)
 ```hcl
-projects = {
-  nyc_taxi = {
-    environments = ["dev", "prod"]
-  }
-}
-schemas = ["raw", "bronze", "silver", "gold"]
-admins  = ["temidayo.ibraheem@gmail.com"]
+catalogs = ["bronze", "silver", "gold", "bronze_dev", "silver_dev", "gold_dev", "playpen"]
+projects = ["nyc_taxi"]
+admins   = ["Admins"]
 ```
 
 ### Terraform Entry Point
@@ -107,19 +102,20 @@ Metastore (account-level provider)
 
 Unity Catalog (workspace-level provider)
 ├── Storage Credential → IAM role
-├── External Location: {env}-lakehouse → s3://{prefix}-lakehouse/{env}/   (one per environment)
-├── Catalog: {project}_{env}
-│   ├── storage_root = s3://{prefix}-lakehouse/{env}/{project}/   (subdir of ext loc)
-│   ├── Schema: raw
-│   ├── Schema: bronze
-│   ├── Schema: silver
-│   └── Schema: gold
+├── Storage Credential → IAM role
+├── External Location: {catalog}-lakehouse → s3://{prefix}-lakehouse/{catalog}/   (one per catalog)
+├── External Location: raw-lakehouse → s3://{prefix}-lakehouse/raw
+├── Grants: Admins group → ALL PRIVILEGES on all ext locations, catalogs, schemas
+├── Catalog: bronze / silver / gold / bronze_dev / silver_dev / gold_dev / playpen
+│   ├── storage_root = s3://{prefix}-lakehouse/{catalog}/   (matches ext loc)
+│   └── Schema: {project}   (e.g. nyc_taxi)
 └── ...
 
 S3 Buckets:
   {prefix}-metastore           → metastore root storage (shared)
-  {prefix}-lakehouse           → single shared bucket with env/project prefixes
-    └── {env}/{project}/raw/bronze/silver/gold/
+  {prefix}-lakehouse           → single shared bucket with catalog prefixes + raw project folders
+    ├── {catalog}/             (empty prefix — UC manages data placement)
+    └── raw/{project}/         (project folders only here, for external data ingestion)
 
 IAM:
   Role: {prefix}-uc-role       → assumed by Databricks, grants S3 access
@@ -299,15 +295,15 @@ resource "databricks_metastore_data_access" "this" {
 
 These use the **workspace-level provider**:
 
-- Create **one external location per environment** pointing at the environment root (`s3://{bucket}/{env}`)
-- Each catalog's `storage_root` is a **subdirectory** of its environment's external location (`s3://{bucket}/{env}/{project}`) — this is valid UC practice
+- Create **one external location per catalog** pointing at the catalog root (`s3://{bucket}/{catalog}`)
+- Each catalog's `storage_root` matches its external location URL (`s3://{bucket}/{catalog}`)
 - The catalog `depends_on` the external location (Databricks validates the location exists)
-- Don't create per-schema or per-catalog external locations — schemas inherit from the catalog; catalogs share the env-level location
+- Projects (schemas) inherit storage from the catalog — no per-project external locations needed
 
 In `modules/unity-catalog/variables.tf`:
 ```hcl
 variable "external_locations" {
-  description = "Map of external location name to S3 URL. One per environment."
+  description = "Map of external location name to S3 URL. One per catalog."
   type        = map(string)
 }
 
@@ -317,10 +313,28 @@ variable "catalogs" {
     comment      = optional(string, "")
   }))
 }
+
+variable "projects" {
+  description = "Project names to create as schemas within each catalog."
+  type        = list(string)
+  default     = []
+}
 ```
 
 In `modules/unity-catalog/main.tf`:
 ```hcl
+locals {
+  catalog_project_pairs = merge([
+    for cat_key, cat in var.catalogs : {
+      for project in var.projects :
+      "${cat_key}_${project}" => {
+        catalog_name = cat_key
+        schema_name  = project
+      }
+    }
+  ]...)
+}
+
 resource "databricks_storage_credential" "this" {
   name         = var.storage_credential_name
   metastore_id = var.metastore_id
@@ -334,8 +348,8 @@ resource "databricks_external_location" "this" {
   for_each = var.external_locations
 
   metastore_id    = var.metastore_id
-  name            = each.key            # e.g. "dev-lakehouse"
-  url             = each.value          # e.g. "s3://{bucket}/dev"
+  name            = each.key            # e.g. "bronze-lakehouse" or "raw-lakehouse"
+  url             = each.value          # e.g. "s3://{bucket}/bronze" or "s3://{bucket}/raw"
   credential_name = databricks_storage_credential.this.name
   comment         = "${each.key} external location"
 }
@@ -349,7 +363,7 @@ resource "databricks_grants" "external_location" {
     for_each = var.admins
     content {
       principal  = grant.value
-      privileges = ["READ FILES", "WRITE FILES"]
+      privileges = ["ALL PRIVILEGES"]
     }
   }
 }
@@ -360,35 +374,73 @@ resource "databricks_catalog" "this" {
   metastore_id  = var.metastore_id
   name          = each.key
   comment       = each.value.comment
-  storage_root  = each.value.storage_root  # subdir of env ext loc
+  storage_root  = each.value.storage_root
   force_destroy = var.force_destroy
 
   depends_on = [databricks_external_location.this]
 }
-```
 
-In `modules/databricks/main.tf`, derive environments from catalog entries and build both maps:
-```hcl
-locals {
-  environments = toset([
-    for entry in values(local.catalog_entries) : entry.environment
-  ])
-}
+resource "databricks_grants" "catalog" {
+  for_each = length(var.admins) > 0 ? var.catalogs : {}
 
-module "unity_catalog" {
-  # ...
-  external_locations = {
-    for env in local.environments :
-    "${env}-lakehouse" => "s3://${module.lakehouse_bucket.bucket_id}/${env}"
-  }
+  catalog = databricks_catalog.this[each.key].name
 
-  catalogs = {
-    for key, entry in local.catalog_entries :
-    entry.catalog_name => {
-      storage_root = "s3://${module.lakehouse_bucket.bucket_id}/${entry.environment}/${replace(entry.project, "_", "-")}"
-      comment      = "${entry.project} ${entry.environment} catalog"
+  dynamic "grant" {
+    for_each = var.admins
+    content {
+      principal  = grant.value
+      privileges = ["ALL PRIVILEGES"]
     }
   }
+}
+
+resource "databricks_schema" "this" {
+  for_each = local.catalog_project_pairs
+
+  catalog_name  = databricks_catalog.this[each.value.catalog_name].name
+  name          = each.value.schema_name  # project name, e.g. "nyc_taxi"
+  force_destroy = var.force_destroy
+}
+
+resource "databricks_grants" "schema" {
+  for_each = length(var.admins) > 0 ? local.catalog_project_pairs : {}
+
+  schema = "${databricks_catalog.this[each.value.catalog_name].name}.${databricks_schema.this[each.key].name}"
+
+  dynamic "grant" {
+    for_each = var.admins
+    content {
+      principal  = grant.value
+      privileges = ["ALL PRIVILEGES"]
+    }
+  }
+}
+```
+
+In `modules/databricks/main.tf`, build external locations (including `raw-lakehouse`) and catalogs from the catalogs list:
+```hcl
+module "unity_catalog" {
+  # ...
+  external_locations = merge(
+    {
+      for catalog in var.catalogs :
+      "${replace(catalog, "_", "-")}-lakehouse" => "s3://${module.lakehouse_bucket.bucket_id}/${replace(catalog, "_", "-")}"
+    },
+    {
+      "raw-lakehouse" = "s3://${module.lakehouse_bucket.bucket_id}/raw"
+    }
+  )
+
+  catalogs = {
+    for catalog in var.catalogs :
+    catalog => {
+      storage_root = "s3://${module.lakehouse_bucket.bucket_id}/${replace(catalog, "_", "-")}"
+      comment      = "${catalog} catalog"
+    }
+  }
+
+  projects = var.projects
+  admins   = var.admins  # e.g. ["Admins"] — grants ALL PRIVILEGES on ext locations, catalogs, schemas
 }
 ```
 
@@ -410,35 +462,47 @@ resource "databricks_mws_permission_assignment" "admin_user" {
 
 This grants the user workspace access with the specified permission level. Without this, users will see "You do not have permission to access this page" even if the workspace is running.
 
-### Flattening Projects × Environments
+### Flattening Catalogs × Projects
 
-Use nested `for` with `merge(...)` to create a map from projects and environments:
+Use nested `for` with `merge(...)` to create a map from catalogs and projects:
 
 ```hcl
 locals {
-  catalog_entries = merge([
-    for project, cfg in var.projects : {
-      for env in cfg.environments :
-      "${replace(project, "_", "-")}-${env}" => {
-        project      = project
-        environment  = env
-        catalog_name = "${project}_${env}"
+  catalog_project_pairs = merge([
+    for catalog in var.catalogs : {
+      for project in var.projects :
+      "${catalog}_${project}" => {
+        catalog = catalog
+        project = project
       }
     }
   ]...)
 }
 ```
 
-### S3 Schema Folders
+### S3 Project Folders
 
-Create empty S3 objects as folder markers for raw/bronze/silver/gold with environment/project prefixes in the shared lakehouse bucket:
+Create empty S3 objects as folder markers for catalog-level prefixes and raw/project folders in the shared lakehouse bucket. Project subfolders only exist under `raw/` — catalog folders are empty prefixes managed by Unity Catalog:
 
 ```hcl
-resource "aws_s3_object" "schema_folders" {
-  for_each = local.bucket_schema_folders
+locals {
+  bucket_project_folders = merge(
+    {
+      for catalog in var.catalogs :
+      catalog => {
+        bucket_id = module.lakehouse_bucket.bucket_id
+        key       = "${replace(catalog, "_", "-")}/"
+      }
+    },
+    local.raw_project_folders
+  )
+}
+
+resource "aws_s3_object" "project_folders" {
+  for_each = local.bucket_project_folders
 
   bucket  = each.value.bucket_id
-  key     = each.value.key  # e.g. "dev/nyc-taxi/raw/"
+  key     = each.value.key  # e.g. "bronze/" or "raw/nyc-taxi/"
   content = ""
 }
 ```
@@ -457,7 +521,7 @@ curl -s "https://<workspace>/api/2.1/unity-catalog/storage-credentials" \
 Resources must be created in this order due to dependencies:
 
 1. **Workspace** — cross-account IAM role, S3 root bucket, MWS workspace
-2. **S3 buckets** — metastore bucket + per-catalog buckets + schema folders
+2. **S3 buckets** — metastore bucket + lakehouse bucket + project folders
 3. **IAM** — UC role with self-assuming trust + S3 access policy
 4. **Metastore** — create, assign to workspace, configure data access (account-level provider)
 5. **Unity Catalog** — storage credential, external locations, catalogs, schemas (workspace-level provider)
@@ -482,28 +546,35 @@ Steps 2-4 can be applied together. Step 5 requires the workspace-level provider 
 
 ## Adding a New Project
 
-To add a new project in an **existing environment**, update the `projects` variable in the root config:
+Add the project name to the `projects` list in the root config:
 
 ```hcl
 module "databricks" {
   source = "../modules/databricks"
 
-  projects = {
-    nyc_taxi = {
-      environments = ["dev", "prod"]
-    }
-    new_project = {
-      environments = ["dev", "prod"]
-    }
-  }
+  catalogs = ["bronze", "silver", "gold", "bronze_dev", "silver_dev", "gold_dev", "playpen"]
+  projects = ["nyc_taxi", "new_project"]
 }
 ```
 
 This automatically creates:
-- S3 folder markers: `{env}/new-project/raw/`, `bronze/`, `silver/`, `gold/`
-- A new catalog `new_project_{env}` with `storage_root = s3://{bucket}/{env}/new-project`
-- Bronze/silver/gold schemas inside the catalog
+- An S3 folder marker: `raw/new-project/` for external data ingestion
+- A `new_project` schema in every catalog (e.g. `bronze.new_project`, `gold_dev.new_project`)
+- `ALL PRIVILEGES` grants for the `Admins` group on each new schema
 
-**No new external location is created** — the new catalog's `storage_root` is a subdirectory of the existing `{env}-lakehouse` external location, which already covers `s3://{bucket}/{env}`.
+**No new external locations or catalogs are created** — the project schema is a child of the existing catalogs, which already have external locations covering `s3://{bucket}/{catalog}`. Project subfolders are only created under `raw/`, not under each catalog.
 
-To add a project in a **new environment** (e.g. `staging`), a new `staging-lakehouse` external location will also be created automatically, derived from the set of environments across all projects.
+## Adding a New Catalog
+
+Add the catalog name to the `catalogs` list:
+
+```hcl
+catalogs = ["bronze", "silver", "gold", "bronze_dev", "silver_dev", "gold_dev", "playpen", "staging"]
+```
+
+This automatically creates:
+- A new `staging` catalog with `storage_root = s3://{bucket}/staging`
+- A new `staging-lakehouse` external location
+- An S3 catalog-level folder marker: `staging/`
+- A schema for each project in the new catalog
+- `ALL PRIVILEGES` grants for the `Admins` group on the new external location, catalog, and schemas

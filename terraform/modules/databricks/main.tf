@@ -1,19 +1,23 @@
 locals {
-  # Flatten projects × environments into a map keyed by "project_env"
-  catalog_entries = merge([
-    for project, cfg in var.projects : {
-      for env in cfg.environments :
-      "${replace(project, "_", "-")}-${env}" => {
-        project      = project
-        environment  = env
-        catalog_name = "${project}_${env}"
+  # Flatten catalogs × projects into a map for S3 folder creation
+  catalog_project_pairs = merge([
+    for catalog in var.catalogs : {
+      for project in var.projects :
+      "${catalog}_${project}" => {
+        catalog = catalog
+        project = project
       }
     }
   ]...)
 
-  environments = toset([
-    for entry in values(local.catalog_entries) : entry.environment
-  ])
+  # Raw folder + project subfolders in the lakehouse bucket
+  raw_project_folders = {
+    for project in var.projects :
+    "raw_${project}" => {
+      bucket_id = module.lakehouse_bucket.bucket_id
+      key       = "raw/${replace(project, "_", "-")}/"
+    }
+  }
 }
 
 # -----------------------------------------------------------------------------
@@ -24,7 +28,6 @@ module "metastore_bucket" {
   source = "../s3"
 
   bucket_name   = "${var.workspace_name}-metastore"
-  environment   = "shared"
   force_destroy = var.force_destroy_metastore
 
   tags = {
@@ -65,14 +68,13 @@ resource "databricks_metastore_data_access" "this" {
 }
 
 # -----------------------------------------------------------------------------
-# Lakehouse S3 Bucket (single shared bucket with env/project prefixes)
+# Lakehouse S3 Bucket (Databricks-managed storage for catalog data)
 # -----------------------------------------------------------------------------
 
 module "lakehouse_bucket" {
   source = "../s3"
 
   bucket_name   = "${var.workspace_name}-lakehouse"
-  environment   = "shared"
   force_destroy = false
 
   tags = {
@@ -81,23 +83,24 @@ module "lakehouse_bucket" {
 }
 
 # -----------------------------------------------------------------------------
-# S3 Schema Folders
+# S3 Project Folders (catalog prefixes + raw project folders in lakehouse bucket)
 # -----------------------------------------------------------------------------
 
 locals {
-  bucket_schema_folders = merge([
-    for key, entry in local.catalog_entries : {
-      for schema in var.schemas :
-      "${key}_${schema}" => {
+  bucket_project_folders = merge(
+    {
+      for catalog in var.catalogs :
+      catalog => {
         bucket_id = module.lakehouse_bucket.bucket_id
-        key       = "${entry.environment}/${replace(entry.project, "_", "-")}/${schema}/"
+        key       = "${replace(catalog, "_", "-")}/"
       }
-    }
-  ]...)
+    },
+    local.raw_project_folders
+  )
 }
 
-resource "aws_s3_object" "schema_folders" {
-  for_each = local.bucket_schema_folders
+resource "aws_s3_object" "project_folders" {
+  for_each = local.bucket_project_folders
 
   bucket  = each.value.bucket_id
   key     = each.value.key
@@ -140,20 +143,25 @@ module "unity_catalog" {
   iam_role_arn            = module.iam_unity_catalog.role_arn
   storage_credential_name = "${var.workspace_name}-storage-credential"
 
-  external_locations = {
-    for env in local.environments :
-    "${env}-lakehouse" => "s3://${module.lakehouse_bucket.bucket_id}/${env}"
-  }
+  external_locations = merge(
+    {
+      for catalog in var.catalogs :
+      "${replace(catalog, "_", "-")}-lakehouse" => "s3://${module.lakehouse_bucket.bucket_id}/${replace(catalog, "_", "-")}"
+    },
+    {
+      "raw-lakehouse" = "s3://${module.lakehouse_bucket.bucket_id}/raw"
+    }
+  )
 
   catalogs = {
-    for key, entry in local.catalog_entries :
-    entry.catalog_name => {
-      storage_root = "s3://${module.lakehouse_bucket.bucket_id}/${entry.environment}/${replace(entry.project, "_", "-")}"
-      comment      = "${entry.project} ${entry.environment} catalog"
+    for catalog in var.catalogs :
+    catalog => {
+      storage_root = "s3://${module.lakehouse_bucket.bucket_id}/${replace(catalog, "_", "-")}"
+      comment      = "${catalog} catalog"
     }
   }
 
-  schemas       = var.schemas
+  projects      = var.projects
   admins        = var.admins
   force_destroy = false
 
